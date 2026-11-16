@@ -1,0 +1,51 @@
+/*
+ * AntiShort - hide YouTube Shorts surfaces before they paint.
+ * Shared by the Chrome extension (injected via manifest.json) and the iOS app (bundled into the
+ * WebView script). content.js hides the same things with a MutationObserver and also catches
+ * cases these selectors cannot express (text labels, absolute links, recycled cards).
+ *
+ * Rules are split into groups on purpose: a browser that rejects one selector drops its whole
+ * rule, so selectors needing :has() never share a rule with plain selectors.
+ */
+
+/* Elements content.js has confirmed as Shorts. */
+[data-antishort-hidden] {
+  display: none !important;
+}
+
+/* Shelves and tiles that only ever contain Shorts (desktop ytd-*, mobile ytm-*, shared view models). */
+ytd-reel-shelf-renderer,
+ytd-rich-shelf-renderer[is-shorts],
+ytm-reel-shelf-renderer,
+ytm-shorts-lockup-view-model,
+ytm-shorts-lockup-view-model-v2,
+ytd-reel-item-renderer,
+ytm-reel-item-renderer,
+ytd-mini-guide-entry-renderer[aria-label="Shorts"],
+yt-tab-shape[tab-title="Shorts"] {
+  display: none !important;
+}
+
+/* Containers whose content identifies them as Shorts (needs :has(), Chrome 105+ / iOS 15.4+). */
+ytd-rich-section-renderer:has(ytd-rich-shelf-renderer[is-shorts]),
+ytd-rich-section-renderer:has(ytd-reel-shelf-renderer),
+ytm-rich-section-renderer:has(ytm-reel-shelf-renderer),
+ytd-rich-item-renderer:has(ytm-shorts-lockup-view-model),
+ytd-rich-item-renderer:has(ytm-shorts-lockup-view-model-v2),
+ytm-rich-item-renderer:has(ytm-shorts-lockup-view-model),
+ytm-rich-item-renderer:has(ytm-shorts-lockup-view-model-v2),
+ytd-rich-item-renderer:has(a#thumbnail[href^="/shorts/"]),
+ytd-video-renderer:has(a#thumbnail[href^="/shorts/"]),
+ytd-grid-video-renderer:has(a#thumbnail[href^="/shorts/"]),
+ytd-compact-video-renderer:has(a#thumbnail[href^="/shorts/"]),
+ytd-playlist-video-renderer:has(a#thumbnail[href^="/shorts/"]),
+ytd-video-renderer:has(ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]),
+ytd-grid-video-renderer:has(ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]),
+ytd-compact-video-renderer:has(ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]),
+ytm-video-with-context-renderer:has(ytm-thumbnail-overlay-time-status-renderer[data-style="SHORTS"]),
+ytm-compact-video-renderer:has(ytm-thumbnail-overlay-time-status-renderer[data-style="SHORTS"]),
+ytd-guide-entry-renderer:has(a#endpoint[title="Shorts"]),
+ytd-mini-guide-entry-renderer:has(a[title="Shorts"]),
+ytm-pivot-bar-item-renderer:has(.pivot-shorts) {
+  display: none !important;
+}

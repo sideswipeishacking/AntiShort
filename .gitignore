@@ -1,0 +1,12 @@
+node_modules/
+.expo/
+dist/
+dist-check/
+web-build/
+ios-app/ios/
+ios-app/android/
+# Written by Chrome when the extension is loaded unpacked.
+chrome-extension/_metadata/
+*.log
+*.tsbuildinfo
+.DS_Store

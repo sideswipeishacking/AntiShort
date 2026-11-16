@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "AntiShort",
+    "slug": "antishort",
+    "owner": "snap-studios-llc",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "platforms": ["ios"],
+    "ios": {
+      "bundleIdentifier": "com.snapstudiosllc.antishort",
+      "buildNumber": "1",
+      "supportsTablet": false,
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false
+        }
+      }
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#121216"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "3ce22a75-ffbb-479b-975c-352547b15139"
+      }
+    }
+  }
+}
