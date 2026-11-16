@@ -26,7 +26,8 @@ const APP_DIR = path.join(ROOT, 'ios-app');
 const APP_MODULES = path.join(APP_DIR, 'node_modules');
 
 const readJson = (relative) => JSON.parse(fs.readFileSync(path.join(ROOT, relative), 'utf8'));
-const readText = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
+// Normalized to LF so the source checks also pass in Windows checkouts (git core.autocrlf=true).
+const readText = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8').replace(/\r\n/g, '\n');
 
 const core = require('./chrome-extension/content.js');
 const iosBlocker = require('./scripts/build-ios-blocker.js');
