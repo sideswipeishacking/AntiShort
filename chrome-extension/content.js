@@ -5,9 +5,9 @@
  *   - Chrome extension: isolated-world content script at document_start (see manifest.json).
  *     page-hook.js runs in the page's MAIN world and reports history.pushState/replaceState
  *     calls to this script through DOM events.
- *   - iOS app: scripts/build-ios-blocker.js bundles page-hook.js + this file + content.css into
- *     ios-app/src/blocker/blockerScript.generated.ts, which the WebView injects at document
- *     start (main frame only).
+ *   - iPhone/Android app: scripts/build-app-blocker.js bundles page-hook.js + this file + content.css into
+ *     mobile-app/src/blocker/blockerScript.generated.ts, which the app WebView injects as the page
+ *     starts loading (iOS: at document start, main frame only).
  *
  * Under Node (test.js) there is no window/document: the file only exports its pure URL helpers.
  *
@@ -103,11 +103,11 @@
     var ATTR_REWRITTEN = 'data-antishort-rewritten';
     var SCAN_THROTTLE_MS = 250;
     var REDIRECT_GUARD_MS = 3000;
-    // Set only by the iOS bundle; the Chrome extension ships content.css through the manifest.
+    // Set only by the app bundle; the Chrome extension ships content.css through the manifest.
     /* global ANTISHORT_INJECT_CSS */
     var injectedCss = typeof ANTISHORT_INJECT_CSS === 'string' ? ANTISHORT_INJECT_CSS : '';
 
-    // Containers. Desktop uses ytd-*, the mobile site (m.youtube.com, also used by the iOS app) ytm-*.
+    // Containers. Desktop uses ytd-*, the mobile site (m.youtube.com, also used by the iPhone/Android app) ytm-*.
     var ITEM_WRAPPERS = 'ytd-rich-item-renderer, ytm-rich-item-renderer';
     var CARDS = [
       'ytd-video-renderer', 'ytd-grid-video-renderer', 'ytd-compact-video-renderer',
@@ -336,7 +336,7 @@
       });
     }
 
-    // ----- Styles (iOS bundle only) -------------------------------------------------------------
+    // ----- Styles (app bundle only) --------------------------------------------------------------
 
     var styleEl = null;
 

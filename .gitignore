@@ -3,8 +3,8 @@ node_modules/
 dist/
 dist-check/
 web-build/
-ios-app/ios/
-ios-app/android/
+mobile-app/ios/
+mobile-app/android/
 # Written by Chrome when the extension is loaded unpacked.
 chrome-extension/_metadata/
 *.log

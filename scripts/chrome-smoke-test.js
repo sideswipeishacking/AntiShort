@@ -390,16 +390,16 @@ async function extensionSuite() {
 }
 
 /**
- * The iOS app's injected script (ios-app/src/blocker/blockerScript.generated.ts), without the
+ * The phone app's injected script (mobile-app/src/blocker/blockerScript.generated.ts), without the
  * extension: registered with Page.addScriptToEvaluateOnNewDocument, i.e. in the page's own world at
  * document start, like the WebView's WKUserScript. iPhone user agent and screen size are emulated.
  * This approximates the app's WebView in Chrome; it is not WebKit and not a device.
  */
 async function iosBundleSuite(knownShortsId) {
-  const { buildScript } = require('./build-ios-blocker.js');
+  const { buildScript } = require('./build-app-blocker.js');
   const { cdp, close } = await launchChrome();
   try {
-    console.log('\n=== iOS app blocker bundle, injected at document start (iPhone emulation, no extension) ===');
+    console.log('\n=== App blocker bundle (iPhone/Android app), injected at document start (iPhone emulation, no extension) ===');
     const page = await openPage(cdp);
     await emulateIphone(page);
     await page.send('Page.addScriptToEvaluateOnNewDocument', { source: buildScript() });

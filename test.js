@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
  * AntiShort test suite. Run from the repository root:  node test.js
- * (needs `npm install` in ios-app/ first, for the TypeScript compiler and Expo's URL polyfill).
+ * (needs `npm install` in mobile-app/ first, for the TypeScript compiler and Expo's URL polyfill).
  *
  * Covers:
  *  - Shorts URL redirect logic, checked against ONE table of cases in all three implementations:
- *      chrome-extension/rules.json (DNR), chrome-extension/content.js, ios-app/src/navigationPolicy.ts
+ *      chrome-extension/rules.json (DNR), chrome-extension/content.js, mobile-app/src/navigationPolicy.ts
  *    The app policy runs twice: with Node's URL and with whatwg-url-minimum (Expo's on-device URL).
  *  - The app's navigation policy (allowed YouTube hosts, blocked external sites and app schemes).
  *  - The injected blocker's browser runtime in a simulated window (redirects on load, SPA
@@ -22,7 +22,7 @@ const vm = require('node:vm');
 
 const ROOT = __dirname;
 const EXT_DIR = path.join(ROOT, 'chrome-extension');
-const APP_DIR = path.join(ROOT, 'ios-app');
+const APP_DIR = path.join(ROOT, 'mobile-app');
 const APP_MODULES = path.join(APP_DIR, 'node_modules');
 
 const readJson = (relative) => JSON.parse(fs.readFileSync(path.join(ROOT, relative), 'utf8'));
@@ -30,7 +30,7 @@ const readJson = (relative) => JSON.parse(fs.readFileSync(path.join(ROOT, relati
 const readText = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8').replace(/\r\n/g, '\n');
 
 const core = require('./chrome-extension/content.js');
-const iosBlocker = require('./scripts/build-ios-blocker.js');
+const appBlocker = require('./scripts/build-app-blocker.js');
 const manifest = readJson('chrome-extension/manifest.json');
 const rules = readJson('chrome-extension/rules.json');
 
@@ -41,15 +41,15 @@ const rules = readJson('chrome-extension/rules.json');
 function requireAppModule(name) {
   const resolved = path.join(APP_MODULES, name);
   if (!fs.existsSync(resolved)) {
-    throw new Error(`ios-app/node_modules/${name} is missing. Run "npm install" in ios-app/ first.`);
+    throw new Error(`mobile-app/node_modules/${name} is missing. Run "npm install" in mobile-app/ first.`);
   }
   return require(resolved);
 }
 
-/** Compiles ios-app/src/navigationPolicy.ts with the app's TypeScript and binds it to a URL class. */
+/** Compiles mobile-app/src/navigationPolicy.ts with the app's TypeScript and binds it to a URL class. */
 function loadNavigationPolicy(URLImpl) {
   const ts = requireAppModule('typescript');
-  const source = readText('ios-app/src/navigationPolicy.ts');
+  const source = readText('mobile-app/src/navigationPolicy.ts');
   const { outputText, diagnostics } = ts.transpileModule(source, {
     reportDiagnostics: true,
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
@@ -126,7 +126,7 @@ describe('Shorts URL redirects (same cases for every implementation)', () => {
       assert.equal(core.getShortsRedirect(input), expected, 'chrome-extension/content.js');
       assert.equal(applyDnrRules(input), expected, 'chrome-extension/rules.json');
       for (const [label, policy] of POLICIES) {
-        assert.equal(policy.getShortsRedirect(input), expected, `ios-app navigationPolicy.ts (${label})`);
+        assert.equal(policy.getShortsRedirect(input), expected, `mobile-app navigationPolicy.ts (${label})`);
       }
     });
   }
@@ -185,13 +185,30 @@ const NAVIGATION_CASES = [
   ['https://www.youtube.com/embed/VIDEO_ID', false, ALLOW],
   ['about:srcdoc', false, ALLOW],
   ['vnd.youtube://VIDEO_ID', false, { action: 'block', reason: 'unsupported-scheme', notify: false }],
+  // Android: react-native-webview does not report the frame (isTopFrame undefined). Treated as the
+  // top frame, so other websites stay blocked; page-made about:/blob:/data: content passes silently.
+  ['https://example.com/', undefined, { action: 'block', reason: 'external-site', host: 'example.com', notify: true }],
+  ['https://googleads.g.doubleclick.net/pagead/ads', undefined, { action: 'block', reason: 'external-site', notify: true }],
+  ['https://m.youtube.com/', undefined, ALLOW],
+  ['https://accounts.google.com/ServiceLogin?service=youtube', undefined, ALLOW],
+  [
+    'https://m.youtube.com/shorts/VIDEO_ID',
+    undefined,
+    { action: 'redirect', target: 'https://m.youtube.com/watch?v=VIDEO_ID', reason: 'shorts' },
+  ],
+  ['intent://watch?v=VIDEO_ID#Intent;scheme=vnd.youtube;package=com.google.android.youtube;end', undefined, { action: 'block', reason: 'unsupported-scheme', notify: true }],
+  ['vnd.youtube://VIDEO_ID', undefined, { action: 'block', reason: 'unsupported-scheme', notify: true }],
+  ['blob:https://m.youtube.com/0b1c2d3e-0000-4000-8000-000000000000', undefined, ALLOW],
+  ['data:text/html,hello', undefined, ALLOW],
+  ['about:srcdoc', undefined, ALLOW],
+  ['not a url', undefined, { action: 'block', reason: 'invalid-url', notify: true }],
 ];
 
-describe('iOS app navigation policy', () => {
+describe('App navigation policy (iPhone/Android)', () => {
   for (const [label, policy] of POLICIES) {
     describe(label, () => {
       for (const [url, isTopFrame, expected] of NAVIGATION_CASES) {
-        test(`${isTopFrame ? 'top frame' : 'sub-frame'} ${url} -> ${expected.action}${expected.reason ? ` (${expected.reason})` : ''}`, () => {
+        test(`${isTopFrame === undefined ? 'unknown frame (Android)' : isTopFrame ? 'top frame' : 'sub-frame'} ${url} -> ${expected.action}${expected.reason ? ` (${expected.reason})` : ''}`, () => {
           const decision = policy.decideNavigation(url, isTopFrame);
           for (const [key, value] of Object.entries(expected)) {
             assert.equal(decision[key], value, `decision.${key} for ${url}: ${JSON.stringify(decision)}`);
@@ -346,7 +363,7 @@ function createFakeBrowser(href) {
       url.href = new URL(next, url.href).href;
     },
     run(script) {
-      vm.runInContext(script, win, { filename: 'ios-blocker.js' });
+      vm.runInContext(script, win, { filename: 'app-blocker.js' });
     },
     flushTimers() {
       for (let i = 0; i < 20 && timers.length; i++) timers.shift()();
@@ -363,8 +380,8 @@ function fakeAnchor(href) {
   };
 }
 
-describe('Injected blocker runtime (iOS bundle = page-hook.js + content.js + content.css)', () => {
-  const script = iosBlocker.buildScript();
+describe('Injected blocker runtime (app bundle = page-hook.js + content.js + content.css)', () => {
+  const script = appBlocker.buildScript();
 
   test('does nothing at all on non-YouTube pages', () => {
     for (const href of ['https://accounts.google.com/ServiceLogin', 'https://music.youtube.com/', 'https://example.com/shorts/VIDEO_ID']) {
@@ -613,19 +630,56 @@ describe('Chrome extension rules.json', () => {
 // ------------------------------------------------------------------------------------------------
 
 describe('Expo app configuration', () => {
-  const appJson = readJson('ios-app/app.json');
-  const easJson = readJson('ios-app/eas.json');
-  const pkg = readJson('ios-app/package.json');
+  const appJson = readJson('mobile-app/app.json');
+  const easJson = readJson('mobile-app/eas.json');
+  const pkg = readJson('mobile-app/package.json');
   const expo = appJson.expo;
 
   test('app.json has a valid iOS app identity', () => {
     assert.equal(expo.name, 'AntiShort');
     assert.match(expo.slug, /^[a-z0-9-]+$/);
     assert.match(expo.version, /^\d+\.\d+\.\d+$/);
-    assert.deepEqual(expo.platforms, ['ios']);
+    assert.deepEqual(expo.platforms, ['ios', 'android']);
     assert.match(expo.ios.bundleIdentifier, /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/);
     assert.match(expo.ios.buildNumber, /^\d+(\.\d+){0,2}$/);
     assert.equal(expo.ios.config.usesNonExemptEncryption, false);
+  });
+
+  test('app.json has a valid Android app identity', () => {
+    // Java package rules: segments start with a letter, letters/digits/underscores only.
+    assert.match(expo.android.package, /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/);
+    assert.ok(Number.isInteger(expo.android.versionCode) && expo.android.versionCode >= 1);
+  });
+
+  test('Android: no runtime permissions, no backups, no cleartext HTTP', () => {
+    const android = expo.android;
+    // [] = only what the libraries need (INTERNET); everything a web page could ask for is removed
+    // from the merged manifest as well.
+    assert.deepEqual(android.permissions, []);
+    for (const permission of [
+      'CAMERA',
+      'RECORD_AUDIO',
+      'ACCESS_FINE_LOCATION',
+      'ACCESS_COARSE_LOCATION',
+      'READ_EXTERNAL_STORAGE',
+      'WRITE_EXTERNAL_STORAGE',
+      'SYSTEM_ALERT_WINDOW',
+    ]) {
+      assert.ok(android.blockedPermissions.includes(`android.permission.${permission}`), permission);
+    }
+    assert.equal(android.allowBackup, false);
+    // Cleartext traffic stays off (Android's default since API 28); nothing may switch it on.
+    assert.equal(android.usesCleartextTraffic, undefined);
+    assert.ok(!JSON.stringify(appJson).includes('usesCleartextTraffic'));
+  });
+
+  test('Android adaptive icon layers are 1024x1024 PNGs with transparency', () => {
+    for (const key of ['foregroundImage', 'monochromeImage']) {
+      const info = pngInfo(path.join(APP_DIR, expo.android.adaptiveIcon[key]));
+      assert.deepEqual([info.width, info.height], [1024, 1024], key);
+      assert.equal(info.colorType, 6, `${key}: RGBA`);
+    }
+    assert.match(expo.android.adaptiveIcon.backgroundColor, /^#[0-9A-Fa-f]{6}$/);
   });
 
   test('requests no device permissions and enforces strict TLS (App Transport Security)', () => {
@@ -636,7 +690,7 @@ describe('Expo app configuration', () => {
     assert.deepEqual(infoPlist.NSAppTransportSecurity, { NSAllowsArbitraryLoads: false });
     assert.equal(expo.ios.entitlements, undefined);
     for (const file of ['src/BrowserScreen.tsx', 'src/navigationPolicy.ts']) {
-      assert.ok(!readText(`ios-app/${file}`).includes('NSAllowsArbitraryLoads'), file);
+      assert.ok(!readText(`mobile-app/${file}`).includes('NSAllowsArbitraryLoads'), file);
     }
   });
 
@@ -652,14 +706,14 @@ describe('Expo app configuration', () => {
     if (expo.owner !== undefined) assert.match(expo.owner, /^[a-z0-9][a-z0-9_-]*$/i);
   });
 
-  test('no stray Expo/EAS config outside ios-app (EAS must be run from ios-app/)', () => {
+  test('no stray Expo/EAS config outside mobile-app (EAS must be run from mobile-app/)', () => {
     for (const file of ['app.json', 'app.config.js', 'app.config.ts', 'eas.json']) {
       assert.ok(!fs.existsSync(path.join(ROOT, file)), `${file} at the repository root`);
     }
-    // EAS reads .easignore only at the git root; a copy inside ios-app/ would be silently ignored.
+    // EAS reads .easignore only at the git root; a copy inside mobile-app/ would be silently ignored.
     assert.ok(!fs.existsSync(path.join(APP_DIR, '.easignore')));
     const gitignore = readText('.gitignore');
-    for (const entry of ['node_modules/', 'ios-app/ios/', 'ios-app/android/']) {
+    for (const entry of ['node_modules/', 'mobile-app/ios/', 'mobile-app/android/']) {
       assert.ok(gitignore.split(/\r?\n/).includes(entry), `.gitignore keeps ${entry} out of the EAS upload`);
     }
   });
@@ -676,6 +730,8 @@ describe('Expo app configuration', () => {
   test('eas.json has an internal-distribution preview profile for real devices', () => {
     assert.equal(easJson.build.preview.distribution, 'internal');
     assert.notEqual(easJson.build.preview.ios && easJson.build.preview.ios.simulator, true);
+    // An APK installs directly on any Android phone (the default, an app bundle, does not).
+    assert.equal(easJson.build.preview.android.buildType, 'apk');
     assert.ok(['local', 'remote'].includes(easJson.cli.appVersionSource));
     assert.match(easJson.cli.version, /^>= \d+\.\d+\.\d+$/);
   });
@@ -692,7 +748,7 @@ describe('Expo app configuration', () => {
   });
 
   test('the WebView is configured to keep every navigation inside the policy', () => {
-    const screen = readText('ios-app/src/BrowserScreen.tsx');
+    const screen = readText('mobile-app/src/BrowserScreen.tsx');
     assert.match(screen, /const ROUTE_ALL_URLS_THROUGH_POLICY = \['\*'\];/);
     assert.match(screen, /originWhitelist=\{ROUTE_ALL_URLS_THROUGH_POLICY\}/);
     assert.match(screen, /onShouldStartLoadWithRequest=\{onShouldStartLoadWithRequest\}/);
@@ -705,8 +761,28 @@ describe('Expo app configuration', () => {
     assert.doesNotMatch(screen, /applicationNameForUserAgent|userAgent=/, 'user agent is not spoofed');
   });
 
+  test('Android: back button, re-injection, renderer loss and iOS-only APIs are handled', () => {
+    const screen = readText('mobile-app/src/BrowserScreen.tsx');
+    assert.match(screen, /BackHandler\.addEventListener\('hardwareBackPress'/);
+    // Android evaluates the "before content loaded" script at onPageStarted; run it again on load.
+    assert.match(screen, /injectedJavaScript=\{IS_ANDROID \? BLOCKER_SCRIPT : undefined\}/);
+    assert.match(screen, /onRenderProcessGone=\{onRenderProcessGone\}/);
+    assert.match(screen, /mixedContentMode="never"/);
+    // Android lets a navigation through when the JS answer takes > 250 ms: onLoadStart re-checks it.
+    const loadStart = screen.slice(screen.indexOf('const onLoadStart'), screen.indexOf('const onLoadProgress'));
+    assert.match(loadStart, /if \(IS_ANDROID\) \{[\s\S]*decideNavigation\(url, true\)[\s\S]*stopLoading\(\)/);
+    // Alert.prompt and ActionSheetIOS do nothing on Android: each use must sit behind an Android branch.
+    for (const api of ['Alert.prompt(', 'ActionSheetIOS.showActionSheetWithOptions(']) {
+      const index = screen.indexOf(api);
+      assert.ok(index > 0, api);
+      const before = screen.slice(Math.max(0, screen.lastIndexOf('useCallback(', index)), index);
+      assert.match(before, /if \(IS_ANDROID\) \{[\s\S]*return;/, `${api} is skipped on Android`);
+    }
+    assert.match(readText('mobile-app/src/components/LinkPrompt.tsx'), /onRequestClose=\{onCancel\}/);
+  });
+
   test('the injected blocker module is generated from the current extension sources', () => {
-    assert.ok(iosBlocker.isUpToDate(), 'run: node scripts/build-ios-blocker.js');
-    assert.doesNotThrow(() => new vm.Script(iosBlocker.buildScript()));
+    assert.ok(appBlocker.isUpToDate(), 'run: node scripts/build-app-blocker.js');
+    assert.doesNotThrow(() => new vm.Script(appBlocker.buildScript()));
   });
 });

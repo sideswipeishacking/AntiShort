@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActionSheetIOS, Alert, Linking, StyleSheet, View } from 'react-native';
+import { ActionSheetIOS, Alert, BackHandler, Linking, Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import type {
@@ -10,10 +10,12 @@ import type {
   WebViewNavigationEvent,
   WebViewOpenWindowEvent,
   WebViewProgressEvent,
+  WebViewRenderProcessGoneEvent,
 } from 'react-native-webview/lib/WebViewTypes';
 
 import { BLOCKER_SCRIPT } from './blocker/blockerScript.generated';
 import { FirstRunNotice } from './components/FirstRunNotice';
+import { LinkPrompt } from './components/LinkPrompt';
 import { ErrorPanel, HttpErrorBanner, type LoadFailure } from './components/StatusViews';
 import { Toolbar } from './components/Toolbar';
 import { hasSeenNotice, markNoticeSeen } from './firstRun';
@@ -34,6 +36,11 @@ import { colors } from './theme';
  */
 const ROUTE_ALL_URLS_THROUGH_POLICY = ['*'];
 
+const IS_ANDROID = Platform.OS === 'android';
+/** Where "open outside the app" goes: Safari on iPhone, the default browser on Android. */
+const SYSTEM_BROWSER = IS_ANDROID ? 'your browser' : 'Safari';
+const OPEN_IN_SYSTEM_BROWSER = IS_ANDROID ? 'Open in browser' : 'Open in Safari';
+
 type Session = { uri: string; key: number };
 type HttpFailure = { status: number; url: string };
 
@@ -46,6 +53,13 @@ export function BrowserScreen() {
   /** URL of the main-frame load in progress, for error messages and retry. */
   const pendingUrlRef = useRef<string | null>(null);
   const alertOpenRef = useRef(false);
+  /** Latest canGoBack, for the Android back button handler. */
+  const canGoBackRef = useRef(false);
+  /**
+   * Android: URL whose load just failed. The WebView then shows its own error page for that URL and
+   * reports it as a new load start, which must not hide our error panel.
+   */
+  const failedUrlRef = useRef<string | null>(null);
 
   const [session, setSession] = useState<Session>({ uri: HOME_URL, key: 0 });
   const [history, setHistory] = useState({ canGoBack: false, canGoForward: false });
@@ -54,6 +68,7 @@ export function BrowserScreen() {
   const [failure, setFailure] = useState<LoadFailure | null>(null);
   const [httpFailure, setHttpFailure] = useState<HttpFailure | null>(null);
   const [noticeVisible, setNoticeVisible] = useState(false);
+  const [linkPromptVisible, setLinkPromptVisible] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -79,11 +94,11 @@ export function BrowserScreen() {
     if (reason === 'external-site' && host) {
       Alert.alert(
         'Link to another website',
-        `This app only shows YouTube, so it did not open:\n\n${host}\n\nYou can open it in Safari instead. Shorts are not filtered there.`,
+        `This app only shows YouTube, so it did not open:\n\n${host}\n\nYou can open it in ${SYSTEM_BROWSER} instead. Shorts are not filtered there.`,
         [
           { text: 'Stay here', style: 'cancel', onPress: done },
           {
-            text: 'Open in Safari',
+            text: OPEN_IN_SYSTEM_BROWSER,
             onPress: () => {
               done();
               Linking.openURL(url).catch(() => undefined);
@@ -109,6 +124,7 @@ export function BrowserScreen() {
         return;
       }
       const target = decision.action === 'redirect' ? decision.target : url;
+      failedUrlRef.current = null;
       setFailure(null);
       setHttpFailure(null);
       if (isYouTubeUrl(committedUrlRef.current) && webViewRef.current) {
@@ -145,13 +161,36 @@ export function BrowserScreen() {
     [navigateTo],
   );
 
-  const onLoadStart = useCallback((event: WebViewNavigationEvent) => {
-    pendingUrlRef.current = event.nativeEvent.url;
-    setLoading(true);
-    setProgress(0);
-    setFailure(null);
-    setHttpFailure(null);
-  }, []);
+  const onLoadStart = useCallback(
+    (event: WebViewNavigationEvent) => {
+      const { url } = event.nativeEvent;
+      if (IS_ANDROID) {
+        // The WebView's own error page for a load that just failed: keep our error panel.
+        if (url === failedUrlRef.current) return;
+        // Safety net: on Android, react-native-webview lets a navigation through when the answer to
+        // onShouldStartLoadWithRequest takes longer than 250 ms. Re-check every main-frame load and
+        // leave a page the policy does not allow.
+        const decision = decideNavigation(url, true);
+        if (decision.action === 'block') {
+          webViewRef.current?.stopLoading();
+          if (canGoBackRef.current) {
+            webViewRef.current?.goBack();
+          } else {
+            committedUrlRef.current = null;
+            setSession((prev) => ({ uri: HOME_URL, key: prev.key + 1 }));
+          }
+          if (decision.notify) showBlockedLink(decision.url, decision.reason, decision.host);
+          return;
+        }
+      }
+      pendingUrlRef.current = url;
+      setLoading(true);
+      setProgress(0);
+      setFailure(null);
+      setHttpFailure(null);
+    },
+    [showBlockedLink],
+  );
 
   const onLoadProgress = useCallback((event: WebViewProgressEvent) => {
     const value = event.nativeEvent.progress;
@@ -169,6 +208,12 @@ export function BrowserScreen() {
   const onError = useCallback((event: WebViewErrorEvent) => {
     event.preventDefault(); // render our own error panel instead of the library's default
     const { description, domain, code } = event.nativeEvent;
+    if (IS_ANDROID) {
+      // Android replaces the page with its own error page: there is no YouTube document left to
+      // navigate from, so "Try again" must load the URL afresh (see navigateTo).
+      failedUrlRef.current = event.nativeEvent.url;
+      committedUrlRef.current = null;
+    }
     setLoading(false);
     setFailure({
       kind: 'load',
@@ -192,7 +237,21 @@ export function BrowserScreen() {
     });
   }, []);
 
+  /** Android: the WebView's renderer crashed or was killed. That WebView can't be reused; see retry(). */
+  const onRenderProcessGone = useCallback((event: WebViewRenderProcessGoneEvent) => {
+    setLoading(false);
+    setFailure({
+      kind: 'terminated',
+      title: 'The page stopped unexpectedly',
+      detail: event.nativeEvent.didCrash
+        ? 'The web page process crashed. Try again to reload it.'
+        : 'Android ended the web page process (usually to free memory). Try again to reload it.',
+      url: committedUrlRef.current,
+    });
+  }, []);
+
   const onNavigationStateChange = useCallback((nav: WebViewNavigation) => {
+    canGoBackRef.current = nav.canGoBack;
     setHistory((prev) =>
       prev.canGoBack === nav.canGoBack && prev.canGoForward === nav.canGoForward
         ? prev
@@ -202,7 +261,13 @@ export function BrowserScreen() {
 
   const retry = useCallback(() => {
     if (!failure) return;
-    if (failure.kind === 'terminated') {
+    if (failure.kind === 'terminated' && IS_ANDROID) {
+      // A WebView whose renderer is gone must be replaced: remount it on the last page.
+      const uri = failure.url ?? HOME_URL;
+      setFailure(null);
+      committedUrlRef.current = null;
+      setSession((prev) => ({ uri, key: prev.key + 1 }));
+    } else if (failure.kind === 'terminated') {
       setFailure(null);
       webViewRef.current?.reload();
     } else {
@@ -222,8 +287,32 @@ export function BrowserScreen() {
   const goHome = useCallback(() => navigateTo(HOME_URL), [navigateTo]);
   const goBack = useCallback(() => webViewRef.current?.goBack(), []);
   const goForward = useCallback(() => webViewRef.current?.goForward(), []);
+  /** Android hardware/gesture Back: go back in the page history first; at its start, leave the app. */
+  useEffect(() => {
+    if (!IS_ANDROID) return undefined;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!canGoBackRef.current || !webViewRef.current) return false;
+      webViewRef.current.goBack();
+      return true;
+    });
+    return () => subscription.remove();
+  }, []);
+
+  const openTypedLink = useCallback(
+    (value: string) => {
+      setLinkPromptVisible(false);
+      const url = normalizeUserUrl(value);
+      if (url) navigateTo(url);
+    },
+    [navigateTo],
+  );
+
   /** "Open YouTube link…": paste a link (e.g. a Shorts link someone sent you); same policy as taps. */
   const promptForLink = useCallback(() => {
+    if (IS_ANDROID) {
+      setLinkPromptVisible(true); // Alert.prompt is iOS-only
+      return;
+    }
     Alert.prompt(
       'Open a YouTube link',
       'Paste a YouTube link. Shorts links open in the regular video player.',
@@ -244,6 +333,20 @@ export function BrowserScreen() {
   }, [navigateTo]);
 
   const showMoreMenu = useCallback(() => {
+    if (IS_ANDROID) {
+      // ActionSheetIOS is iOS-only. Android alerts take up to three buttons: neutral, negative, positive.
+      Alert.alert(
+        'AntiShort',
+        undefined,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'About', onPress: () => setNoticeVisible(true) },
+          { text: 'Open YouTube link…', onPress: promptForLink },
+        ],
+        { cancelable: true },
+      );
+      return;
+    }
     ActionSheetIOS.showActionSheetWithOptions(
       { options: ['Open YouTube link…', 'About Shorts filtering', 'Cancel'], cancelButtonIndex: 2 },
       (index) => {
@@ -272,10 +375,15 @@ export function BrowserScreen() {
           originWhitelist={ROUTE_ALL_URLS_THROUGH_POLICY}
           onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
           onOpenWindow={onOpenWindow}
-          // Shorts blocker: a WKUserScript at document start, main frame only. Its first statement
-          // returns unless the page is youtube.com / www.youtube.com / m.youtube.com.
+          // Shorts blocker. Its first statement returns unless the page is youtube.com /
+          // www.youtube.com / m.youtube.com. iOS: a WKUserScript at document start, main frame only.
+          // Android: evaluated in the main frame when the page starts loading (onPageStarted).
           injectedJavaScriptBeforeContentLoaded={BLOCKER_SCRIPT}
           injectedJavaScriptBeforeContentLoadedForMainFrameOnly
+          // Android only: run it again when the page has loaded, in case the early run missed the
+          // new document. The script guards against running twice in one document.
+          injectedJavaScript={IS_ANDROID ? BLOCKER_SCRIPT : undefined}
+          injectedJavaScriptForMainFrameOnly
           // YouTube does not work without JavaScript.
           javaScriptEnabled
           allowsInlineMediaPlayback
@@ -283,8 +391,12 @@ export function BrowserScreen() {
           allowsBackForwardNavigationGestures
           // Link previews would load pages outside the navigation policy.
           allowsLinkPreview={false}
-          // No camera or microphone for web pages; the app declares no device permissions.
+          // No camera or microphone for web pages; the app declares no device permissions (on Android
+          // the WebView asks for the Android permission, which the app does not have, so it is refused).
           mediaCapturePermissionGrantType="deny"
+          // Android: YouTube's fullscreen button needs this; never load HTTP content into HTTPS pages.
+          allowsFullscreenVideo
+          mixedContentMode="never"
           fraudulentWebsiteWarningEnabled
           webviewDebuggingEnabled={__DEV__}
           renderLoading={renderNothing}
@@ -295,6 +407,7 @@ export function BrowserScreen() {
           onError={onError}
           onHttpError={onHttpError}
           onContentProcessDidTerminate={onContentProcessDidTerminate}
+          onRenderProcessGone={onRenderProcessGone}
           onNavigationStateChange={onNavigationStateChange}
         />
         {httpFailure && !failure ? (
@@ -315,6 +428,9 @@ export function BrowserScreen() {
       />
 
       <FirstRunNotice visible={noticeVisible} onClose={closeNotice} />
+      {IS_ANDROID ? (
+        <LinkPrompt visible={linkPromptVisible} onCancel={() => setLinkPromptVisible(false)} onOpen={openTypedLink} />
+      ) : null}
     </View>
   );
 }

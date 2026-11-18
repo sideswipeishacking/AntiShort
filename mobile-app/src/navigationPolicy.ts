@@ -77,25 +77,35 @@ export function getShortsRedirect(url: string): string | null {
   return null;
 }
 
+/** Schemes that only carry content the page itself made (no site, no app). */
+const PAGE_CONTENT_SCHEMES = ['about:', 'blob:', 'data:'];
+
 /**
  * Decides what to do with a navigation request from the WebView.
  * Top-frame navigations: YouTube hosts (Shorts redirected, http upgraded) and Google sign-in are
  * allowed; everything else is blocked and the user is told. Sub-frames (embedded players, ads,
  * sign-in helpers) may load web content but never app-launching schemes; the blocker script is
  * main-frame only, so nothing is injected into them.
+ *
+ * `isTopFrame` is undefined when the platform doesn't say which frame navigates: react-native-webview
+ * on Android leaves it out (its type claims a boolean). Android asks only about main-frame loads and
+ * about sub-frame loads with non-http(s) schemes, so an unknown frame is treated as the top frame,
+ * except that page-made content (about:, blob:, data:) is let through without a prompt.
  */
-export function decideNavigation(url: string, isTopFrame: boolean): NavigationDecision {
+export function decideNavigation(url: string, isTopFrame: boolean | undefined): NavigationDecision {
   if (url === 'about:blank' || url === 'about:srcdoc') return { action: 'allow' };
+  const frame = isTopFrame === undefined ? 'unknown' : isTopFrame ? 'top' : 'sub';
 
   const parsed = parse(url);
-  if (!parsed) return { action: 'block', reason: 'invalid-url', url, host: null, notify: isTopFrame };
+  if (!parsed) return { action: 'block', reason: 'invalid-url', url, host: null, notify: frame !== 'sub' };
   const scheme = parsed.protocol.toLowerCase();
 
-  if (!isTopFrame) {
+  if (frame === 'sub') {
     return SUBFRAME_SCHEMES.includes(scheme)
       ? { action: 'allow' }
       : { action: 'block', reason: 'unsupported-scheme', url, host: null, notify: false };
   }
+  if (frame === 'unknown' && PAGE_CONTENT_SCHEMES.includes(scheme)) return { action: 'allow' };
 
   if (scheme !== 'https:' && scheme !== 'http:') {
     return { action: 'block', reason: 'unsupported-scheme', url, host: null, notify: true };

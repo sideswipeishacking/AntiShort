@@ -1,6 +1,9 @@
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '../theme';
+
+/** The phone's own browser, which AntiShort cannot change. */
+const SYSTEM_BROWSER = Platform.OS === 'android' ? 'your web browser' : 'Safari';
 
 type Props = {
   visible: boolean;
@@ -21,7 +24,7 @@ export function FirstRunNotice({ visible, onClose }: Props) {
             player instead.
           </Text>
           <Text style={styles.body}>
-            It cannot change the official YouTube app, Safari, or YouTube links opened from other apps. Shorts still
+            It cannot change the official YouTube app, {SYSTEM_BROWSER}, or YouTube links opened from other apps. Shorts still
             appear there.
           </Text>
           <Text style={styles.body}>

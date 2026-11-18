@@ -2,7 +2,7 @@
   "name": "antishort",
   "version": "1.0.0",
   "private": true,
-  "description": "YouTube Shorts blocker: MV3 browser extension for Chrome/Brave (chrome-extension/) and Expo iOS app (ios-app/).",
+  "description": "YouTube Shorts blocker: MV3 browser extension for Chrome/Brave (chrome-extension/) and Expo app for iPhone and Android (mobile-app/).",
   "license": "MIT",
   "homepage": "https://github.com/sideswipeishacking/AntiShort#readme",
   "repository": {
@@ -11,8 +11,8 @@
   },
   "scripts": {
     "test": "node test.js",
-    "build:ios-blocker": "node scripts/build-ios-blocker.js",
-    "check:ios-blocker": "node scripts/build-ios-blocker.js --check",
+    "build:app-blocker": "node scripts/build-app-blocker.js",
+    "check:app-blocker": "node scripts/build-app-blocker.js --check",
     "icons": "python scripts/generate-icons.py"
   }
 }

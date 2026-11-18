@@ -21,12 +21,12 @@ AntiShort for iPhone is not on the App Store. You compile it in Expo's cloud wit
 
 Plan on 30 to 60 minutes the first time. Most of it is waiting for the cloud build.
 
-### The one rule: run `npx eas` inside `ios-app/`
+### The one rule: run `npx eas` inside `mobile-app/`
 
-`ios-app/` is the Expo project. EAS treats the folder you run it from (or the nearest folder above it that has a `package.json`) as the project. Run from the repository root, it finds the root `package.json`, which has no Expo in it. It then writes stray `app.json`/`eas.json` files at the root and fails with *Cannot find 'expo-modules-autolinking'* or *The module 'expo' is not installed*. So:
+`mobile-app/` is the Expo project (the same one builds the [Android app](build-android.md)). EAS treats the folder you run it from (or the nearest folder above it that has a `package.json`) as the project. Run from the repository root, it finds the root `package.json`, which has no Expo in it. It then writes stray `app.json`/`eas.json` files at the root and fails with *Cannot find 'expo-modules-autolinking'* or *The module 'expo' is not installed*. So:
 
 ```bash
-cd AntiShort/ios-app
+cd AntiShort/mobile-app
 ```
 
 and run every `npx eas …` command from there.
@@ -37,7 +37,7 @@ and run every `npx eas …` command from there.
 
 ```bash
 git clone https://github.com/sideswipeishacking/AntiShort.git
-cd AntiShort/ios-app
+cd AntiShort/mobile-app
 ```
 
 **Why git matters:** EAS uploads the **git repository that contains the project**: its working tree, minus everything in `.gitignore` (`node_modules`, generated `ios/`/`android/` folders). Uncommitted changes are included, so you don't have to commit before building. With a clone, that repository is exactly this project (about 1 MB).
@@ -49,14 +49,14 @@ cd AntiShort
 git init
 git add -A
 git commit -m "AntiShort"
-cd ios-app
+cd mobile-app
 ```
 
 ---
 
 ## 2. Install dependencies
 
-Inside `ios-app/`:
+Inside `mobile-app/`:
 
 ```bash
 npm install
@@ -78,7 +78,7 @@ The app uses Expo SDK 58, React Native 0.88.1, React 19.3.0 and `react-native-we
 
 ## 3. Make the project yours
 
-`ios-app/app.json` in this repository points at the maintainer's Expo project and Apple bundle ID. You can't build into someone else's Expo project, and a bundle ID belongs to one Apple team, so change three things in **`ios-app/app.json`**:
+`mobile-app/app.json` in this repository points at the maintainer's Expo project and Apple bundle ID. You can't build into someone else's Expo project, and a bundle ID belongs to one Apple team, so change three things in **`mobile-app/app.json`**:
 
 | Field | Change |
 |---|---|
@@ -172,7 +172,7 @@ Later builds reuse the stored certificate and profile and don't need the Apple l
 
 ## 7. Rebuild and update
 
-- **New version of AntiShort:** run `git pull` in the repository and `npm install` in `ios-app/`, then run the build command from step 5 again. Install it from the new link; it replaces the installed app. Optionally raise `expo.ios.buildNumber` (or `expo.version`) in `app.json` first so you can tell builds apart. `eas.json` uses `appVersionSource: "local"`, so these values come from `app.json`.
+- **New version of AntiShort:** run `git pull` in the repository and `npm install` in `mobile-app/`, then run the build command from step 5 again. Install it from the new link; it replaces the installed app. Optionally raise `expo.ios.buildNumber` (or `expo.version`) in `app.json` first so you can tell builds apart. `eas.json` uses `appVersionSource: "local"`, so these values come from `app.json`.
 - **Another iPhone:** run `npx eas device:create` for it, then build again. EAS asks whether to add the new device to the provisioning profile. Every device change needs a new build.
 - **Expired signing:** Apple distribution certificates and ad hoc profiles expire after about a year, and the installed app stops opening when they do. Build again; EAS offers to create new credentials.
 
@@ -186,7 +186,7 @@ Later builds reuse the stored certificate and profile and don't need the Apple l
 - **Errors:** if a page fails to load, a panel says so, with the reason, **Try again** and **YouTube home**. An HTTP error from YouTube shows a banner. If iOS ends the web process, a panel offers to reload. A page is never shown as loaded unless it loaded.
 - **Sign-in:** you can try signing in to your Google account, but Google may refuse sign-in inside embedded browsers. The app does not work around that. Without sign-in, Subscriptions and other personal pages are unavailable.
 
-The app asks for no device permissions. It denies camera and microphone requests from web pages, keeps App Transport Security strict, and runs its bundled blocker only on YouTube pages. More detail: [development.md](development.md#iphone-app-internals).
+The app asks for no device permissions. It denies camera and microphone requests from web pages, keeps App Transport Security strict, and runs its bundled blocker only on YouTube pages. More detail: [development.md](development.md#app-internals-iphone-and-android).
 
 ---
 
@@ -194,7 +194,7 @@ The app asks for no device permissions. It denies camera and microphone requests
 
 | Symptom | Cause and fix |
 |---|---|
-| *Cannot find 'expo-modules-autolinking'* or *The module 'expo' is not installed*, and new `app.json`/`eas.json` files appear at the repository root | You ran `npx eas` from the repository root. Delete those two root files, `cd ios-app`, and run the command again. |
+| *Cannot find 'expo-modules-autolinking'* or *The module 'expo' is not installed*, and new `app.json`/`eas.json` files appear at the repository root | You ran `npx eas` from the repository root. Delete those two root files, `cd mobile-app`, and run the command again. |
 | *Failed to register bundle identifier*, together with **"Apple Developer Program License Agreement Updated"** | Apple has a new agreement waiting. The team's **Account Holder** must sign in at <https://developer.apple.com/account> and accept it (also check App Store Connect → **Business** for pending agreements), then run the build again. EAS cannot accept it for you. |
 | *Failed to register bundle identifier* without an agreement message, or the ID is reported as unavailable | Another Apple team already uses that bundle ID. Choose a different `expo.ios.bundleIdentifier` in `app.json` and build again. |
 | A permissions error, or an error about an unknown project, right at the start | `app.json` still points at another account's EAS project. Do [step 3](#3-make-the-project-yours). |
@@ -212,7 +212,7 @@ The app asks for no device permissions. It denies camera and microphone requests
 If you have a Mac with Xcode, you can sign with a free Apple ID's personal team instead of using EAS:
 
 ```bash
-cd ios-app
+cd mobile-app
 npx expo run:ios --device
 ```
 

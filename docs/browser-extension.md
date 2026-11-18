@@ -14,7 +14,7 @@ The extension in [`chrome-extension/`](../chrome-extension) hides YouTube Shorts
 | **Google Chrome** (desktop) | Tested. The live smoke test passes in Chrome 157 |
 | Microsoft Edge, Vivaldi, Opera and other Chromium browsers | Should work: same extension engine, Chromium 111 or newer. **Not tested** |
 | Firefox, Safari | Not supported |
-| Any browser on a phone or tablet | Not supported. On iPhone, use the [AntiShort app](build-ios.md) |
+| Any browser on a phone or tablet | Not supported. On a phone, use the AntiShort app for [Android](build-android.md) or [iPhone](build-ios.md) |
 
 ---
 
