@@ -5,7 +5,7 @@ AntiShort for iPhone is not on the App Store. You compile it in Expo's cloud wit
 > [!IMPORTANT]
 > The app filters YouTube **only inside its own built-in browser**. The official YouTube app, Safari, other browsers and YouTube links tapped in other apps keep showing Shorts; iOS gives apps no way to change them.
 
-**Contents:** [What you need](#what-you-need) · [1. Get the code](#1-get-the-code) · [2. Install dependencies](#2-install-dependencies) · [3. Make the project yours](#3-make-the-project-yours) · [4. Register your iPhone](#4-register-your-iphone) · [5. Build](#5-build) · [6. Install on the iPhone](#6-install-on-the-iphone) · [7. Rebuild and update](#7-rebuild-and-update) · [Using the app](#using-the-app) · [Troubleshooting](#troubleshooting) · [Without a paid Apple membership](#without-a-paid-apple-membership-mac-only-not-tested)
+**Contents:** [What you need](#what-you-need) · [1. Get the code](#1-get-the-code) · [2. Install dependencies](#2-install-dependencies) · [3. Make the project yours](#3-make-the-project-yours) · [4. Register your iPhone](#4-register-your-iphone) · [5. Build](#5-build) · [6. Install on the iPhone](#6-install-on-the-iphone) · [7. Rebuild and update](#7-rebuild-and-update) · [Using the app](#using-the-app) · [Picture-in-picture](#picture-in-picture) · [Troubleshooting](#troubleshooting) · [Without a paid Apple membership](#without-a-paid-apple-membership-mac-only-not-tested)
 
 ---
 
@@ -180,13 +180,27 @@ Later builds reuse the stored certificate and profile and don't need the Apple l
 
 ## Using the app
 
-- **Toolbar:** Back, Forward, Reload (shows a spinner while a page loads), Home, and **More**, which has *Open YouTube link…* and *About Shorts filtering*. A thin progress line at the top shows page loading. Swiping from the screen edge also goes back and forward.
+- **Toolbar:** Back, Forward, Reload (shows a spinner while a page loads), Home, **PiP** (picture-in-picture, see below) and **More**, which has *Open YouTube link…* and *About Shorts filtering*. A thin progress line at the top shows page loading. Swiping from the screen edge also goes back and forward.
 - **Open YouTube link…:** paste a link someone sent you. A Shorts link opens in the regular player. A non-YouTube link gets the external-link prompt instead of opening.
 - **Links to other websites** never open automatically. You get a prompt naming the site, with **Stay here** or **Open in Safari** (Safari does not filter Shorts). Links that would launch other apps, for example `vnd.youtube://`, which opens the official YouTube app, are blocked with a short message.
 - **Errors:** if a page fails to load, a panel says so, with the reason, **Try again** and **YouTube home**. An HTTP error from YouTube shows a banner. If iOS ends the web process, a panel offers to reload. A page is never shown as loaded unless it loaded.
 - **Sign-in:** you can try signing in to your Google account, but Google may refuse sign-in inside embedded browsers. The app does not work around that. Without sign-in, Subscriptions and other personal pages are unavailable.
 
-The app asks for no device permissions. It denies camera and microphone requests from web pages, keeps App Transport Security strict, and runs its bundled blocker only on YouTube pages. More detail: [development.md](development.md#app-internals-iphone-and-android).
+The app asks for no device permissions. Its only background mode is *audio*, for picture-in-picture. It denies camera and microphone requests from web pages, keeps App Transport Security strict, and runs its bundled blocker only on YouTube pages. More detail: [development.md](development.md#app-internals-iphone-and-android).
+
+---
+
+## Picture-in-picture
+
+Keep a video playing in a small floating window while you use other apps. This uses iOS's own picture-in-picture for web videos; YouTube's mobile site allows it.
+
+- **PiP button:** while a video plays, tap **PiP** in the toolbar. The video moves into a small window; tap **PiP** again to bring it back into the page. On a page without a video the button does nothing.
+- **From fullscreen:** tap YouTube's fullscreen button, then the picture-in-picture button of the iOS player, or simply go to the home screen while the fullscreen video plays (if *Settings → General → Picture in Picture → Start PiP Automatically* is on).
+- **In the window:** iOS's usual picture-in-picture controls: play/pause, skip, close, and the button that returns to AntiShort. Drag it anywhere, or to the edge to tuck it away.
+
+For the window to keep playing after you leave the app, the app declares the *audio* background mode (`UIBackgroundModes: ["audio"]` in `app.json`) and nothing else. It doesn't force background playback: if YouTube pauses a video, it stays paused.
+
+**Not yet tested on an iPhone.** Picture-in-picture arrived with version 1.1.0 (build 2); install a new build ([step 5](#5-build)) to get it. (On Android, the same feature was tested in the emulator; iPhone uses WebKit's own picture-in-picture instead, see [development.md](development.md#picture-in-picture).)
 
 ---
 

@@ -13,6 +13,7 @@ import type {
   WebViewRenderProcessGoneEvent,
 } from 'react-native-webview/lib/WebViewTypes';
 
+import { AntiShortPip } from '../modules/antishort-pip';
 import { BLOCKER_SCRIPT } from './blocker/blockerScript.generated';
 import { FirstRunNotice } from './components/FirstRunNotice';
 import { LinkPrompt } from './components/LinkPrompt';
@@ -27,6 +28,7 @@ import {
   isYouTubeUrl,
   normalizeUserUrl,
 } from './navigationPolicy';
+import { IOS_PIP_TOGGLE_SCRIPT, isVideoPageUrl } from './pictureInPicture';
 import { colors } from './theme';
 
 /**
@@ -40,6 +42,11 @@ const IS_ANDROID = Platform.OS === 'android';
 /** Where "open outside the app" goes: Safari on iPhone, the default browser on Android. */
 const SYSTEM_BROWSER = IS_ANDROID ? 'your browser' : 'Safari';
 const OPEN_IN_SYSTEM_BROWSER = IS_ANDROID ? 'Open in browser' : 'Open in Safari';
+/**
+ * Picture-in-picture: WebKit's own video picture-in-picture on iPhone; the activity-level window of
+ * modules/antishort-pip on Android (8+ devices that have the feature).
+ */
+const PIP_SUPPORTED = IS_ANDROID ? (AntiShortPip?.isSupported() ?? false) : true;
 
 type Session = { uri: string; key: number };
 type HttpFailure = { status: number; url: string };
@@ -69,6 +76,8 @@ export function BrowserScreen() {
   const [httpFailure, setHttpFailure] = useState<HttpFailure | null>(null);
   const [noticeVisible, setNoticeVisible] = useState(false);
   const [linkPromptVisible, setLinkPromptVisible] = useState(false);
+  /** A YouTube video page is open (Android only: iOS doesn't report in-page URL changes). */
+  const [onVideoPage, setOnVideoPage] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -252,6 +261,7 @@ export function BrowserScreen() {
 
   const onNavigationStateChange = useCallback((nav: WebViewNavigation) => {
     canGoBackRef.current = nav.canGoBack;
+    setOnVideoPage(isVideoPageUrl(nav.url));
     setHistory((prev) =>
       prev.canGoBack === nav.canGoBack && prev.canGoForward === nav.canGoForward
         ? prev
@@ -296,6 +306,30 @@ export function BrowserScreen() {
       return true;
     });
     return () => subscription.remove();
+  }, []);
+
+  /** Android: Home while a video page is open (and audio plays) enters picture-in-picture by itself. */
+  useEffect(() => {
+    AntiShortPip?.setAutoEnterEnabled(PIP_SUPPORTED && onVideoPage);
+  }, [onVideoPage]);
+
+  const enterPictureInPicture = useCallback(() => {
+    if (!IS_ANDROID) {
+      // WebKit's picture-in-picture for YouTube's <video>; tapping again switches back.
+      webViewRef.current?.injectJavaScript(IOS_PIP_TOGGLE_SCRIPT);
+      return;
+    }
+    if (!AntiShortPip) return;
+    AntiShortPip.enterAsync()
+      .then((entered) => {
+        if (!entered) {
+          Alert.alert(
+            'Picture in picture is off',
+            'Android did not open the small window. Check that picture-in-picture is allowed for AntiShort: Settings → Apps → Special app access → Picture-in-picture.',
+          );
+        }
+      })
+      .catch(() => undefined);
   }, []);
 
   const openTypedLink = useCallback(
@@ -387,6 +421,9 @@ export function BrowserScreen() {
           // YouTube does not work without JavaScript.
           javaScriptEnabled
           allowsInlineMediaPlayback
+          // iPhone: WebKit's picture-in-picture for videos (with UIBackgroundModes "audio" in
+          // app.json it keeps playing when you leave the app). Android uses modules/antishort-pip.
+          allowsPictureInPictureMediaPlayback
           mediaPlaybackRequiresUserAction={false}
           allowsBackForwardNavigationGestures
           // Link previews would load pages outside the navigation policy.
@@ -425,11 +462,18 @@ export function BrowserScreen() {
         onReload={reload}
         onHome={goHome}
         onMore={showMoreMenu}
+        showPictureInPicture={PIP_SUPPORTED}
+        canPictureInPicture={IS_ANDROID ? onVideoPage : true}
+        onPictureInPicture={enterPictureInPicture}
       />
 
       <FirstRunNotice visible={noticeVisible} onClose={closeNotice} />
       {IS_ANDROID ? (
-        <LinkPrompt visible={linkPromptVisible} onCancel={() => setLinkPromptVisible(false)} onOpen={openTypedLink} />
+        <LinkPrompt
+          visible={linkPromptVisible}
+          onCancel={() => setLinkPromptVisible(false)}
+          onOpen={openTypedLink}
+        />
       ) : null}
     </View>
   );

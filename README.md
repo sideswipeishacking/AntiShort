@@ -17,6 +17,8 @@ All parts:
 - send bare `/shorts` to the homepage and a channel's `/shorts` tab to its `/videos` tab;
 - leave regular videos alone.
 
+The phone apps can also keep a video playing in a small **picture-in-picture** window when you switch to another app ([Android](docs/build-android.md#picture-in-picture), [iPhone](docs/build-ios.md#picture-in-picture)).
+
 > [!IMPORTANT]
 > **The phone apps only filter YouTube inside the app itself.** They cannot change the official YouTube app, Safari, Chrome or other browsers, or YouTube links you tap in other apps (messages, mail and so on); those still show Shorts. Neither iOS nor Android lets an app change other apps. AntiShort is not a Safari extension.
 
@@ -85,7 +87,7 @@ Then point the project at your own Expo account and bundle ID, register your iPh
 None of the parts collects, stores or sends any data, and none contains analytics.
 
 - **Extension:** one permission, *Read and change your data on youtube.com, www.youtube.com and m.youtube.com*. No background worker, no storage, no network requests of its own. It does nothing on any other website.
-- **Phone apps:** no runtime permissions (no camera, microphone, location, photos, storage, contacts or tracking); on Android the only permission that matters is network access, and app backups are off. The only thing the apps store is whether you have dismissed the first-run notice. The blocker script is bundled in the app and never downloaded.
+- **Phone apps:** no runtime permissions (no camera, microphone, location, photos, storage, contacts or tracking); on Android the only permission that matters is network access, and app backups are off. Picture-in-picture needs no permission (on iPhone the app declares the *audio* background mode for it). The only thing the apps store is whether you have dismissed the first-run notice. The blocker script is bundled in the app and never downloaded.
 
 YouTube itself sees your browsing as it would in any browser.
 
@@ -99,8 +101,8 @@ YouTube itself sees your browsing as it would in any browser.
 ## What has been tested
 
 - **Extension:** unit tests, plus a live smoke test against real YouTube in a throwaway headless browser profile. It passes in Brave 1.99 and Chrome 157: no Shorts left visible and no regular videos hidden on Home, search, watch, channel and mobile-layout pages; all redirects work.
-- **Android app:** unit and configuration tests, TypeScript, `expo-doctor`, and the app itself on an Android Studio emulator (Android 17, API 37). Tested there: the development build, inspected inside its WebView (search results: 220 Shorts links and 44 Shorts tiles on the page, none visible; all regular videos visible), and the released APK from EAS (search, Shorts links, link prompts, Back button, fullscreen video, offline error panel). Not yet tried on a physical Android phone.
-- **iPhone app:** the same unit tests. The iOS preview build 1.0.0 (1) was built on EAS and installed on an iPhone, where Shorts are blocked. The Android work since then leaves the iOS code paths unchanged but hasn't been rebuilt for iPhone yet, and the full manual checklist has not been run on an iPhone.
+- **Android app:** unit and configuration tests, TypeScript, `expo-doctor`, and the app itself on an Android Studio emulator (Android 17, API 37). Tested there: the development build, inspected inside its WebView (search results: 220 Shorts links and 44 Shorts tiles on the page, none visible; all regular videos visible), and the released APK from EAS (search, Shorts links, link prompts, Back button, fullscreen video, offline error panel). Picture-in-picture (1.1.0): Home while a video plays and the **PiP** button open the window with only the video, which keeps playing (checked by frame comparison and Android's audio state), also from YouTube's fullscreen; Home with a paused video or on a non-video page doesn't open it; expanding restores the app, closing stops the video. Not yet tried on a physical Android phone.
+- **iPhone app:** the same unit tests. The iOS preview build 1.0.0 (1) was built on EAS and installed on an iPhone, where Shorts are blocked. Picture-in-picture (1.1.0) uses WebKit's own picture-in-picture and has **not** been tested on an iPhone yet; neither has the full manual checklist.
 
 Details and commands: [docs/development.md](docs/development.md#tests).
 

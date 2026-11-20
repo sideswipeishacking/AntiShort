@@ -1,3 +1,4 @@
+import type React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,10 +13,17 @@ type ToolbarProps = {
   onReload: () => void;
   onHome: () => void;
   onMore: () => void;
+  /** Show the picture-in-picture button (false on Android devices without picture-in-picture). */
+  showPictureInPicture: boolean;
+  /** Picture-in-picture button enabled (Android: only while a video page is open). */
+  canPictureInPicture: boolean;
+  onPictureInPicture: () => void;
 };
 
 type ButtonProps = {
-  glyph: string;
+  glyph?: string;
+  /** Drawn icon instead of a text glyph; receives the current color. */
+  icon?: (color: string) => React.ReactNode;
   label: string;
   accessibilityLabel: string;
   onPress: () => void;
@@ -23,7 +31,7 @@ type ButtonProps = {
   busy?: boolean;
 };
 
-function ToolbarButton({ glyph, label, accessibilityLabel, onPress, disabled = false, busy = false }: ButtonProps) {
+function ToolbarButton({ glyph, icon, label, accessibilityLabel, onPress, disabled = false, busy = false }: ButtonProps) {
   return (
     <Pressable
       onPress={onPress}
@@ -37,6 +45,8 @@ function ToolbarButton({ glyph, label, accessibilityLabel, onPress, disabled = f
       <View style={styles.glyphBox}>
         {busy ? (
           <ActivityIndicator size="small" color={colors.text} />
+        ) : icon ? (
+          icon(disabled ? colors.disabled : colors.text)
         ) : (
           <Text style={[styles.glyph, disabled ? styles.disabled : null]}>{glyph}</Text>
         )}
@@ -46,7 +56,16 @@ function ToolbarButton({ glyph, label, accessibilityLabel, onPress, disabled = f
   );
 }
 
-/** Native bottom toolbar: Back, Forward, Reload (spinner while loading), Home, More. */
+/** Picture-in-picture icon: a screen with a small window in its corner (plain views, same on every platform). */
+function PipIcon(color: string) {
+  return (
+    <View style={[styles.pipFrame, { borderColor: color }]}>
+      <View style={[styles.pipWindow, { backgroundColor: color }]} />
+    </View>
+  );
+}
+
+/** Native bottom toolbar: Back, Forward, Reload (spinner while loading), Home, PiP, More. */
 export function Toolbar(props: ToolbarProps) {
   const insets = useSafeAreaInsets();
   return (
@@ -67,6 +86,15 @@ export function Toolbar(props: ToolbarProps) {
         busy={props.loading}
       />
       <ToolbarButton glyph="⌂" label="Home" accessibilityLabel="Go to YouTube home" onPress={props.onHome} />
+      {props.showPictureInPicture ? (
+        <ToolbarButton
+          icon={PipIcon}
+          label="PiP"
+          accessibilityLabel="Picture in picture: keep the video playing in a small window"
+          onPress={props.onPictureInPicture}
+          disabled={!props.canPictureInPicture}
+        />
+      ) : null}
       <ToolbarButton glyph="⋯" label="More" accessibilityLabel="More: open a link, about" onPress={props.onMore} />
     </View>
   );
@@ -106,5 +134,19 @@ const styles = StyleSheet.create({
   },
   disabled: {
     color: colors.disabled,
+  },
+  pipFrame: {
+    width: 24,
+    height: 18,
+    borderWidth: 2,
+    borderRadius: 4,
+    justifyContent: 'flex-end',
+    alignItems: 'flex-end',
+    padding: 2,
+  },
+  pipWindow: {
+    width: 10,
+    height: 7,
+    borderRadius: 1.5,
   },
 });

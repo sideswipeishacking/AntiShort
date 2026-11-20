@@ -23,6 +23,9 @@ mobile-app/                      the Expo project for iPhone and Android (run al
   src/blocker/blockerScript.generated.ts   page-hook.js + content.js + content.css bundled for the WebView
   src/components/                toolbar, first-run notice, error panel, link dialog (Android)
   src/firstRun.ts, src/theme.ts  first-run flag (AsyncStorage), colors
+  src/pictureInPicture.ts        picture-in-picture helpers (video-page check, iPhone PiP button script)
+  modules/antishort-pip/         local Expo module (Android): activity picture-in-picture, player-filling window
+  plugins/                       config plugin: lets the Android activity enter picture-in-picture
   app.json, eas.json             Expo and EAS configuration
   assets/                        app icon, Android adaptive icon layers, splash image
 scripts/
@@ -104,6 +107,19 @@ Neither platform matches these scripts per site, so the script is attached to ev
 - **iPhone only:** link previews are off, so long-press previews can't load pages outside the policy; edge swipes go back and forward.
 - **Inline playback** is on, **fullscreen video** is allowed on Android (`allowsFullscreenVideo`), and **web inspection** is enabled only in development builds.
 
+### Picture-in-picture
+
+**iPhone.** WebKit has picture-in-picture for web videos, and YouTube's mobile page allows it (its `<video>` doesn't set `disablePictureInPicture`; checked on m.youtube.com). The WebView sets `allowsPictureInPictureMediaPlayback`, and `app.json` adds the `audio` background mode (`UIBackgroundModes`), which iOS needs to keep a picture-in-picture video playing after you leave the app. The **PiP** toolbar button runs `IOS_PIP_TOGGLE_SCRIPT`: it calls `webkitSetPresentationMode('picture-in-picture')` on YouTube's video. WKWebView's `evaluateJavaScript` counts as a user action, which that call needs. iOS's WebView doesn't report in-page URL changes, so the button can't know whether a video page is open; it stays enabled and does nothing without a video. Not yet tested on an iPhone.
+
+**Android.** Android's WebView has no HTML picture-in-picture, so the whole activity goes into the floating window:
+
+- `modules/antishort-pip` (local Expo module, Kotlin): `enterAsync()` calls `Activity.enterPictureInPictureMode` with a 16:9 window, and `setAutoEnterEnabled()` arms automatic entry. Its `Package` hooks Expo's activity lifecycle: `onUserLeaveHint` (Home button or gesture) enters picture-in-picture when auto-entry is armed **and** the page's video is playing. While a video page is open and the app is in front, the module asks the page every 0.7 s whether YouTube's `<video>` is playing (read-only, host check first). Android's own audio state can't tell: it keeps a paused video's audio stream open for about 10 seconds and also counts other apps' music. The app arms auto-entry while a video page is open (`isVideoPageUrl`; on Android the WebView reports in-page navigation).
+- `PipZoom.kt` decides what the window shows. Found in the emulator: when the window shrinks, React Native lays the app out again for the small size, the toolbar and top bar take all of it, the page gets **0 px** of height, and YouTube pauses its player at once. React Native can't fix that from JavaScript, because it doesn't apply UI updates while Android keeps the activity paused. So, just before entering picture-in-picture, `PipZoom` pins every view of the activity's content at its full size (the React Native root and, in YouTube fullscreen, react-native-webview's fullscreen view): nothing is laid out again, and the page never resizes. It then scales and shifts the root so YouTube's player fills the window. It gets the player's position by asking the page (a read-only `getBoundingClientRect()` of `#movie_player`, host check first) and re-asks whenever the WebView changes. YouTube's fullscreen view can't be scaled the same way: its video is a separate surface that view transforms don't move, so the window would go black. In that case the module asks the page to leave fullscreen (`document.exitFullscreen()`, host check first); the video carries on in the page's player, which is then scaled into the window. Leaving the window (or returning to the app) undoes everything.
+- `plugins/withAndroidPictureInPicture.js` sets `android:supportsPictureInPicture="true"` on the main activity and adds the size `configChanges`, so the activity is resized, not recreated (recreating it would reload the page and stop the video).
+- react-native-webview doesn't pause the WebView when the activity pauses, and in the window the page stays visible, so the video keeps playing.
+
+Nothing here works around YouTube: no script stops YouTube from pausing, nothing removes a picture-in-picture restriction, and the page itself is never changed for it. The app only turns on the platform's picture-in-picture and decides what part of its own screen the window shows.
+
 ---
 
 ## Changing the blocker
@@ -149,6 +165,7 @@ It covers:
   - The WebView's security props.
   - The generated app bundle matches the extension sources.
   - Android: app identity, no runtime permissions, no backups, no cleartext, adaptive icons, APK build type, back button, re-injection and renderer-loss handling, and that iOS-only APIs sit behind an Android branch.
+  - Picture-in-picture: the video-page check (with both URL implementations), the iPhone button script and the Android player query (host check first, read-only), the iOS audio background mode, the Android config plugin on a sample manifest, the local module wiring, and that the layout is pinned before the window shrinks and restored afterwards.
 
 More checks for the app, run from `mobile-app/`:
 
@@ -230,6 +247,7 @@ Use a search that reliably returns Shorts, for example **funny cats**. *Expected
 | 12 | **App only: errors** | n/a | Airplane mode, then Reload | Error panel with the reason and *Try again*; the page is not shown as loaded |
 | 13 | **Android only: Back button** | n/a | Open 2 to 3 pages, press Back (button or gesture) | Goes back one page each time; on the first page the app closes |
 | 14 | **App only: links to other apps** | n/a | Tap an "Open app" / `intent://` link, if YouTube shows one | "Link not opened" message; no other app opens |
+| 15 | **App only: picture-in-picture** | n/a | Play a video, then tap **PiP**; then (Android) go Home while it plays | The video continues in a small window showing only the player; expanding it restores the app. Home on a non-video page or with a paused video leaves the app normally |
 
 ---
 

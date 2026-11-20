@@ -10,3 +10,4 @@ chrome-extension/_metadata/
 *.log
 *.tsbuildinfo
 .DS_Store
+mobile-app/modules/*/android/build/

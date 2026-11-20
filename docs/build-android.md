@@ -5,7 +5,7 @@ The Android app is the same Expo project as the iPhone app ([`mobile-app/`](../m
 > [!IMPORTANT]
 > The app filters YouTube **only inside its own built-in browser**. The official YouTube app, Chrome and other browsers, and YouTube links opened from other apps keep showing Shorts; Android gives apps no way to change them.
 
-**Contents:** [Option 1: Download the APK](#option-1-download-the-apk) · [Option 2: Build it yourself with EAS](#option-2-build-it-yourself-with-eas) · [Option 3: Build locally with Android Studio](#option-3-build-locally-with-android-studio-not-tested) · [Try it in the Android Studio emulator](#try-it-in-the-android-studio-emulator) · [Using the app](#using-the-app) · [Permissions and privacy](#permissions-and-privacy) · [Troubleshooting](#troubleshooting)
+**Contents:** [Option 1: Download the APK](#option-1-download-the-apk) · [Option 2: Build it yourself with EAS](#option-2-build-it-yourself-with-eas) · [Option 3: Build locally with Android Studio](#option-3-build-locally-with-android-studio-not-tested) · [Try it in the Android Studio emulator](#try-it-in-the-android-studio-emulator) · [Using the app](#using-the-app) · [Picture-in-picture](#picture-in-picture) · [Permissions and privacy](#permissions-and-privacy) · [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -126,7 +126,7 @@ The app was tested this way on an emulated Pixel 9 Pro with Android 17 (API 37).
 
 ## Using the app
 
-- **Toolbar:** Back, Forward, Reload (shows a spinner while a page loads), Home, and **More**, which has *About* and *Open YouTube link…*. A thin progress line at the top shows page loading.
+- **Toolbar:** Back, Forward, Reload (shows a spinner while a page loads), Home, **PiP** (picture-in-picture, see below) and **More**, which has *About* and *Open YouTube link…*. A thin progress line at the top shows page loading.
 - **Android Back button or gesture:** goes back in the page history. On the first page it leaves the app as usual.
 - **Open YouTube link…:** paste a link someone sent you. A Shorts link opens in the regular player. A non-YouTube link gets the external-link prompt instead of opening.
 - **Links to other websites** never open automatically. You get a prompt naming the site, with **Stay here** or **Open in browser** (your default browser, where Shorts are not filtered).
@@ -137,8 +137,24 @@ The app was tested this way on an emulated Pixel 9 Pro with Android 17 (API 37).
 
 ---
 
+## Picture-in-picture
+
+Keep a video playing in a small floating window while you use other apps.
+
+- **Automatically:** while a video is playing, go to the home screen (Home button or swipe up). AntiShort shrinks into a small window and the video keeps playing. A paused video, or a page that isn't a video, doesn't open the window.
+- **By hand:** on a video page, tap **PiP** in the toolbar.
+- **From YouTube's fullscreen:** Home works the same way. AntiShort leaves YouTube's fullscreen as the window opens, and the video carries on.
+- **In the window:** drag it anywhere, or off the edge of the screen to tuck it away. Tap it once for its controls: **expand** (back to the full app), **close** (the video stops) and Android's picture-in-picture settings. There is no play/pause button in the window; expand the app to pause.
+- While the window is open, the app shows only the video player; the rest comes back when you expand it.
+- **Turn it off:** *Settings → Apps → Special app access → Picture-in-picture → AntiShort* (the path varies by phone). With it off, the PiP button tells you so, and Home leaves the app as usual.
+
+Picture-in-picture needs Android 8.0 or newer, and phones without the feature (some low-memory ones) don't show the PiP button. It doesn't change what YouTube allows: the app doesn't force background playback, and if YouTube pauses a video, it stays paused.
+
+---
+
 ## Permissions and privacy
 
+- Picture-in-picture needs **no permission**; it's a per-app setting you control (above).
 - The app requests **no runtime permissions**: no camera, microphone, location, storage, contacts or notifications. Its manifest asks only for **full network access** (`INTERNET`), plus an internal permission the Android libraries declare for the app itself. (On Android 17, the system also lists *local network access* for apps built for earlier Android versions; AntiShort's manifest doesn't request it.)
 - Camera, microphone, location, storage, overlay and vibration permissions are explicitly removed from the app's manifest (`android.blockedPermissions` in `app.json`). If a web page asks for camera or microphone, the request is refused.
 - **Cleartext HTTP is off**, and HTTPS pages may not load HTTP content (`mixedContentMode="never"`).
@@ -158,4 +174,5 @@ The app was tested this way on an emulated Pixel 9 Pro with Android 17 (API 37).
 | Errors about `expo-modules-autolinking`, or `app.json`/`eas.json` appear at the repository root | You ran `npx eas` from the repository root. Delete those two files, `cd mobile-app`, and run it again. |
 | A permissions error, or an unknown project, right at the start of `eas build` | `app.json` still points at another account's EAS project. Do step 2 of [Option 2](#option-2-build-it-yourself-with-eas). |
 | Google says *This browser or app may not be secure* | Google restricts sign-in in embedded browsers. Expected; the app does not bypass it. |
+| The video doesn't go into a small window when I leave the app | It only does so while a video is **playing** on a video page, and only if picture-in-picture is allowed for AntiShort in Android settings. Try the **PiP** button; if Android refuses, the app says so. |
 | Some Shorts appear after a YouTube redesign | Update to the latest release. If it persists, open an issue with the page and a screenshot. |

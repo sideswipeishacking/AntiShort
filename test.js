@@ -46,18 +46,23 @@ function requireAppModule(name) {
   return require(resolved);
 }
 
-/** Compiles mobile-app/src/navigationPolicy.ts with the app's TypeScript and binds it to a URL class. */
-function loadNavigationPolicy(URLImpl) {
+/** Compiles a pure TypeScript file of the app with the app's TypeScript and binds it to a URL class. */
+function loadAppTsModule(relative, URLImpl) {
   const ts = requireAppModule('typescript');
-  const source = readText('mobile-app/src/navigationPolicy.ts');
+  const source = readText(relative);
   const { outputText, diagnostics } = ts.transpileModule(source, {
     reportDiagnostics: true,
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   });
-  assert.equal(diagnostics.length, 0, 'navigationPolicy.ts should transpile without diagnostics');
+  assert.equal(diagnostics.length, 0, `${relative} should transpile without diagnostics`);
   const module = { exports: {} };
   new Function('exports', 'module', 'URL', outputText)(module.exports, module, URLImpl);
   return module.exports;
+}
+
+/** mobile-app/src/navigationPolicy.ts bound to a URL class. */
+function loadNavigationPolicy(URLImpl) {
+  return loadAppTsModule('mobile-app/src/navigationPolicy.ts', URLImpl);
 }
 
 const policyNode = loadNavigationPolicy(URL);
@@ -510,6 +515,159 @@ describe('Injected blocker runtime (app bundle = page-hook.js + content.js + con
     const counts = [...browser.listeners.values()].map((list) => list.length);
     browser.run(script);
     assert.deepEqual([...browser.listeners.values()].map((list) => list.length), counts);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// Picture-in-picture (app)
+// ------------------------------------------------------------------------------------------------
+
+describe('Picture-in-picture', () => {
+  const pipNode = loadAppTsModule('mobile-app/src/pictureInPicture.ts', URL);
+  const pipExpo = loadAppTsModule('mobile-app/src/pictureInPicture.ts', requireAppModule('whatwg-url-minimum').URL);
+  const KOTLIN = 'mobile-app/modules/antishort-pip/android/src/main/java/expo/modules/antishortpip';
+
+  const VIDEO_PAGES = [
+    ['https://m.youtube.com/watch?v=VIDEO_ID', true],
+    ['https://www.youtube.com/watch?v=VIDEO_ID&t=42s', true],
+    ['https://m.youtube.com/watch?feature=share&v=VIDEO_ID', true],
+    ['https://m.youtube.com/live/VIDEO_ID', true],
+    ['https://m.youtube.com/', false],
+    ['https://m.youtube.com/watch', false],
+    ['https://m.youtube.com/results?search_query=v', false],
+    ['https://m.youtube.com/@YouTube/videos', false],
+    ['https://m.youtube.com/shorts/VIDEO_ID', false],
+    ['https://music.youtube.com/watch?v=VIDEO_ID', false],
+    ['https://www.youtube.com.evil.example/watch?v=VIDEO_ID', false],
+    ['http://m.youtube.com/watch?v=VIDEO_ID', false],
+    ['not a url', false],
+    [null, false],
+  ];
+  for (const [label, pip] of [['Node URL', pipNode], ['Expo URL polyfill (whatwg-url-minimum)', pipExpo]]) {
+    test(`isVideoPageUrl recognizes YouTube video pages only (${label})`, () => {
+      for (const [url, expected] of VIDEO_PAGES) assert.equal(pip.isVideoPageUrl(url), expected, String(url));
+    });
+  }
+
+  const HOST_CHECK_FIRST = "(function () { var h = String(location.hostname).toLowerCase(); if (!(h === 'youtube.com' || ";
+
+  /** The JavaScript held in a Kotlin `const val NAME = "..." + "..."` (string pieces joined). */
+  const kotlinString = (kotlin, name) => {
+    const match = new RegExp(`const val ${name} =([\\s\\S]*?)\\n\\n`).exec(kotlin);
+    assert.ok(match, name);
+    return [...match[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`)).join('');
+  };
+
+  test('iPhone: the PiP button script checks the host first and only switches the video presentation', () => {
+    const script = pipNode.IOS_PIP_TOGGLE_SCRIPT;
+    assert.doesNotThrow(() => new vm.Script(script));
+    assert.ok(script.startsWith(HOST_CHECK_FIRST), 'host check comes first');
+    assert.match(script, /webkitSetPresentationMode/);
+    assert.doesNotMatch(script, /fetch\(|XMLHttpRequest|eval\(|innerHTML|postMessage|disablePictureInPicture/);
+  });
+
+  test('iPhone: WebKit picture-in-picture on, and only the audio background mode so it keeps playing', () => {
+    const expo = readJson('mobile-app/app.json').expo;
+    assert.deepEqual(expo.ios.infoPlist.UIBackgroundModes, ['audio']);
+    assert.match(readText('mobile-app/src/BrowserScreen.tsx'), /\n\s*allowsPictureInPictureMediaPlayback\n/);
+  });
+
+  test('Android: the config plugin enables picture-in-picture on the main activity without recreating it', () => {
+    const expo = readJson('mobile-app/app.json').expo;
+    assert.ok(expo.plugins.includes('./plugins/withAndroidPictureInPicture'));
+    const { setPictureInPicture } = require('./mobile-app/plugins/withAndroidPictureInPicture.js');
+    const manifest = {
+      manifest: {
+        application: [
+          {
+            $: { 'android:name': '.MainApplication' },
+            activity: [
+              {
+                $: { 'android:name': '.MainActivity', 'android:configChanges': 'keyboard|orientation|screenSize|uiMode' },
+                'intent-filter': [
+                  {
+                    action: [{ $: { 'android:name': 'android.intent.action.MAIN' } }],
+                    category: [{ $: { 'android:name': 'android.intent.category.LAUNCHER' } }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const activity = setPictureInPicture(manifest).manifest.application[0].activity[0].$;
+    assert.equal(activity['android:supportsPictureInPicture'], 'true');
+    const changes = activity['android:configChanges'].split('|');
+    for (const change of ['keyboard', 'uiMode', 'orientation', 'screenLayout', 'screenSize', 'smallestScreenSize']) {
+      assert.ok(changes.includes(change), change);
+    }
+    assert.equal(new Set(changes).size, changes.length, 'no duplicates');
+  });
+
+  test('Android: the local native module is wired up (module, package, JS name)', () => {
+    const base = 'mobile-app/modules/antishort-pip';
+    assert.deepEqual(readJson(`${base}/expo-module.config.json`), {
+      platforms: ['android'],
+      android: { modules: ['expo.modules.antishortpip.AntiShortPipModule'] },
+    });
+    assert.match(readText(`${KOTLIN}/AntiShortPipModule.kt`), /Name\("AntiShortPip"\)/);
+    // Autolinking only registers *Package.kt files that import expo.modules.core's Package.
+    const pkg = readText(`${KOTLIN}/AntiShortPipPackage.kt`);
+    assert.match(pkg, /import expo\.modules\.core\.interfaces\.Package\b/);
+    for (const hook of ['onCreate', 'onResume', 'onPause', 'onUserLeaveHint']) {
+      assert.match(pkg, new RegExp(`override fun ${hook}\\(`), hook);
+    }
+    const state = readText(`${KOTLIN}/PipState.kt`);
+    assert.match(state, /setAspectRatio\(Rational\(16, 9\)\)/);
+    // Home opens the window only while the page's video plays. Android's audio state can't tell (it
+    // lags ~10 s after a pause and counts other apps' music), so the page itself is asked.
+    assert.match(state, /if \(activity == null \|\| !autoEnterEnabled \|\| !videoPlaying\) return/);
+    assert.doesNotMatch(state, /isMusicActive/);
+    const playing = kotlinString(state, 'VIDEO_PLAYING_SCRIPT');
+    assert.doesNotThrow(() => new vm.Script(playing));
+    assert.ok(playing.startsWith(HOST_CHECK_FIRST), 'host check comes first');
+    assert.match(playing, /!v\.paused/);
+    assert.doesNotMatch(playing, /\.play\(|\.pause\(|appendChild|\.style|fetch\(|eval\(|innerHTML|postMessage/);
+    assert.match(readText(`${base}/index.ts`), /requireOptionalNativeModule<AntiShortPipModule>\('AntiShortPip'\)/);
+  });
+
+  test('Android: the window shows the player without resizing the page (PipZoom)', () => {
+    const state = readText(`${KOTLIN}/PipState.kt`);
+    // The layout is pinned before the window shrinks, and undone on exit and on resume.
+    assert.ok(state.indexOf('PipZoom.start(activity)') < state.indexOf('enterPictureInPictureMode('), 'pinned before entering');
+    assert.match(state, /if \(!info\.isInPictureInPictureMode\) restore\(\)/);
+    assert.match(state, /fun onResume\(activity: Activity\?\) \{\s*if \(activity == null\) return\s*if \(!activity\.isInPictureInPictureMode\) restore\(\)/);
+    const zoom = readText(`${KOTLIN}/PipZoom.kt`);
+    // Every view of the activity's content is pinned (the React Native root and, in YouTube
+    // fullscreen, react-native-webview's fullscreen view), then restored.
+    assert.match(zoom, /for \(i in 0 until content\.childCount\) pin\(content\.getChildAt\(i\)\)/);
+    assert.match(zoom, /view\.layoutParams = fixed/);
+    assert.match(zoom, /if \(view\.parent === content\) view\.layoutParams = saved/);
+    assert.match(zoom, /view\.scaleX = scale/);
+    // The page's player inside the root is fitted into the window. YouTube's fullscreen view can't be
+    // scaled (its video surface would land outside the window), so the page leaves fullscreen first.
+    assert.match(zoom, /if \(webView\.isShown\) fit\(root, rect, width, height\)/);
+    assert.match(zoom, /if \(fullscreenView\(\) != null\) webView\.evaluateJavascript\(EXIT_FULLSCREEN_SCRIPT, null\)/);
+    const exit = kotlinString(zoom, 'EXIT_FULLSCREEN_SCRIPT');
+    assert.doesNotThrow(() => new vm.Script(exit));
+    assert.ok(exit.startsWith(HOST_CHECK_FIRST), 'host check comes first');
+    assert.match(exit, /document\.exitFullscreen\(\)/);
+    assert.doesNotMatch(exit, /\.play\(|\.pause\(|appendChild|\.style|fetch\(|eval\(|innerHTML|postMessage/);
+    // The page is only asked where its player is; the query checks the host first and changes nothing.
+    const script = kotlinString(zoom, 'PLAYER_RECT_SCRIPT');
+    assert.doesNotThrow(() => new vm.Script(script));
+    assert.ok(script.startsWith(HOST_CHECK_FIRST), 'host check comes first');
+    assert.match(script, /getBoundingClientRect\(\)/);
+    assert.doesNotMatch(script, /appendChild|\.remove\(|\.style|\.play\(|\.pause\(|fetch\(|eval\(|innerHTML|postMessage/);
+  });
+
+  test('the app arms Home picture-in-picture only on video pages and leaves the page alone', () => {
+    const screen = readText('mobile-app/src/BrowserScreen.tsx');
+    assert.match(screen, /AntiShortPip\?\.setAutoEnterEnabled\(PIP_SUPPORTED && onVideoPage\)/);
+    assert.match(screen, /setOnVideoPage\(isVideoPageUrl\(nav\.url\)\)/);
+    // No JS-side layout change for the window: React Native can't apply it while the activity is paused.
+    assert.doesNotMatch(screen, /inPictureInPicture|buildPipLayoutScript/);
   });
 });
 
